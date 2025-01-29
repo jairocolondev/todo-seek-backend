@@ -1,92 +1,126 @@
 const express = require("express");
 const router = express.Router();
+const prisma = require("../prismaClient");
 
-let jcTodos = [
-  {
-    id: 1,
-    title: "Buy groceries",
-    description: "Milk, Bread, Eggs",
-    status: "pending",
-  },
-  {
-    id: 2,
-    title: "Walk the dog",
-    description: "30 minute walk",
-    status: "completed",
-  },
-];
+// GET /api/todos -> Tareas del usuario logueado
+router.get("/", async (req, res) => {
+  try {
+    // userId viene del token
+    const userId = req.user.userId;
 
-// GET /api/todos -> Lista todas las tareas
-router.get("/", (req, res) => {
-  res.json(jcTodos);
-});
-
-// GET /api/todos/:id -> Muestra una tarea específica por ID
-router.get("/:id", (req, res) => {
-  const { id } = req.params;
-  const todo = jcTodos.find((t) => t.id === parseInt(id));
-  if (!todo) {
-    return res.status(404).json({ message: "Tarea no encontrada" });
+    // Solo traigo los TODOS que pertenezcan al userId
+    const todos = await prisma.todo.findMany({
+      where: { userId },
+    });
+    res.json(todos);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  res.json(todo);
 });
 
-// POST /api/todos -> Crea una nueva tarea
-router.post("/", (req, res) => {
+// POST /api/todos -> Crea una tarea vinculada al usuario
+router.post("/", async (req, res) => {
   const { title, description, status } = req.body;
 
-  // Generar un nuevo ID tomando el más alto actual + 1
-  const newId =
-    jcTodos.length > 0 ? Math.max(...jcTodos.map((t) => t.id)) + 1 : 1;
+  try {
+    const userId = req.user.userId;
 
-  const newTodo = {
-    id: newId,
-    title,
-    description,
-    status: status || "pending",
-  };
-
-  jcTodos.push(newTodo);
-  res.status(201).json(newTodo);
+    const newTodo = await prisma.todo.create({
+      data: {
+        title,
+        description,
+        status: status || "pending",
+        user: {
+          connect: { id: userId },
+        },
+      },
+    });
+    res.status(201).json(newTodo);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// PATCH /api/todos/:id -> Actualiza una tarea (parcial)
-router.patch("/:id", (req, res) => {
-  const { id } = req.params;
+// GET /api/todos/:id -> Detalle de tarea, pero verifique que sea del user actual
+router.get("/:id", async (req, res) => {
+  const todoId = parseInt(req.params.id);
+  const userId = req.user.userId;
+
+  try {
+    // Busco la tarea perteneciente a userId
+    const todo = await prisma.todo.findFirst({
+      where: {
+        id: todoId,
+        userId: userId,
+      },
+    });
+
+    if (!todo) {
+      return res
+        .status(404)
+        .json({ message: "Tarea no encontrada o no te pertenece" });
+    }
+    res.json(todo);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PATCH /api/todos/:id -> Actualiza una tarea del user actual
+router.patch("/:id", async (req, res) => {
+  const todoId = parseInt(req.params.id);
+  const userId = req.user.userId;
   const { title, description, status } = req.body;
 
-  const todoIndex = jcTodos.findIndex((t) => t.id === parseInt(id));
+  try {
+    // Primero, busco la tarea del user actual
+    let existingTodo = await prisma.todo.findFirst({
+      where: { id: todoId, userId },
+    });
+    if (!existingTodo) {
+      return res
+        .status(404)
+        .json({ message: "Tarea no encontrada o no te pertenece" });
+    }
 
-  if (todoIndex === -1) {
-    return res.status(404).json({ message: "Tarea no encontrada" });
+    // Actualizamos
+    const updatedTodo = await prisma.todo.update({
+      where: { id: todoId },
+      data: {
+        ...(title !== undefined && { title }),
+        ...(description !== undefined && { description }),
+        ...(status !== undefined && { status }),
+      },
+    });
+    res.json(updatedTodo);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-
-  // Actualizamos solo los campos recibidos
-  const updatedTodo = {
-    ...jcTodos[todoIndex],
-    ...(title !== undefined && { title }),
-    ...(description !== undefined && { description }),
-    ...(status !== undefined && { status }),
-  };
-
-  jcTodos[todoIndex] = updatedTodo;
-
-  res.json(updatedTodo);
 });
 
-// DELETE /api/todos/:id -> Elimina una tarea
-router.delete("/:id", (req, res) => {
-  const { id } = req.params;
-  const todoIndex = jcTodos.findIndex((t) => t.id === parseInt(id));
+// DELETE /api/todos/:id -> Elimina tarea del user actual
+router.delete("/:id", async (req, res) => {
+  const todoId = parseInt(req.params.id);
+  const userId = req.user.userId;
 
-  if (todoIndex === -1) {
-    return res.status(404).json({ message: "Tarea no encontrada" });
+  try {
+    // Verifico que la tarea sea del user actual
+    let existingTodo = await prisma.todo.findFirst({
+      where: { id: todoId, userId },
+    });
+    if (!existingTodo) {
+      return res
+        .status(404)
+        .json({ message: "Tarea no encontrada o no te pertenece" });
+    }
+
+    await prisma.todo.delete({
+      where: { id: todoId },
+    });
+    res.json({ message: "Tarea eliminada exitosamente" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-
-  // Elimina la tarea del array
-  jcTodos.splice(todoIndex, 1);
-
-  res.json({ message: "Tarea eliminada exitosamente" });
 });
 
 module.exports = router;
