@@ -1,13 +1,13 @@
 {
   "name": "todo-seek-backend",
   "version": "1.0.0",
+  "author": "Jairo Colón | Web Developer Freelo",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js"
   },
   "keywords": [],
-  "author": "Jairo Colón | Developer Freelo",
   "license": "ISC",
   "description": "",
   "dependencies": {
